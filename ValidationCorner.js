@@ -1,54 +1,67 @@
-function getNestedRef(base, path) {
-    return path.split('.').reduce((obj, key) => obj?.[key], base);
-}
-
-function getNamesAtPaths(base, paths = []) {
-    const results = [];
-
-    const sources = paths.length > 0
-        ? paths.map(path => getNestedRef(base, path)).filter(obj => obj && typeof obj === 'object')
-        : [base]; // fallback: treat base as the object to extract from
-
-    for (const obj of sources) {
-        for (const value of Object.values(obj)) {
-            if (value && typeof value === 'object' && 'name' in value) {
-                results.push(value.name.toLowerCase());
-            }
-        }
+// Mock Character class with minimal implementation
+class MockCharacter {
+    constructor(name, health = 50, maxHealth = 100) {
+        this.name = name;
+        this.health = health;
+        this.maxHealth = maxHealth;
     }
 
-    return results;
+    adjustHealth(amount) {
+        this.health = Math.min(this.maxHealth, this.health + amount);
+    }
 }
 
-
-
-
-const testObj = {
-    flat: {
-        offensive: {
-            sword: { name: "Sword", power: 10 },
-            axe: { name: "Axe", power: 15 }
-        },
-        defensive: {
-            shield: { name: "Shield", power: 5 }
-        }
-    },
-    percent: {
-        stats: {
-            offensive: {
-                fire: { name: "Fire", power: 20 }
-            },
-            defensive: {
-                armor: { name: "Armor", power: 8 }
-            }
+// Sample item list with a healing item
+const itemList = {
+    consumables: {
+        health_potion_s: {
+            name: "Minor Health Potion",
+            description: "Restores 50 HP when used.",
+            effects: { heal: 50 },
+            stackable: true,
+            usable: true,
+            rarity: 1
         }
     }
 };
 
-const testPaths = [
-    'flat.offensive',
-    'percent.stats.defensive'
-];
+const effectList = {
+    heal: (target, value) => {
+        target.adjustHealth(value);
+    },
+    resourceHeal: (target, value) => {
+        target.adjustResource(value);
+    },
+    // Add more effects as needed
+    burn: (target, value) => {
+        target.statusEffects.push({ type: 'burn', duration: value });
+    },
+    // etc.
+};
 
-const entries = getNamesAtPaths(testObj.flat.offensive);
-console.log(entries);
+// Function to test
+function useItem(key, user, targets = [user]) {
+    const item = itemList.consumables[key];
+    if (!item || !item.usable) return;
+
+    for (const target of targets) {
+        const effects = item.effects;
+
+        for (const [effectType, value] of Object.entries(effects)) {
+            const effectHandler = effectList[effectType];
+            if (typeof effectHandler === 'function') {
+                effectHandler(target, value);
+            } else {
+                console.warn(`No handler defined for effect type: ${effectType}`);
+            }
+        }
+    }
+}
+const user = new MockCharacter("TestUser", 40);
+
+// Use the item
+useItem("health_potion_s", user);
+
+// Validate result
+console.assert(user.health === 90, `Expected 90 HP, got ${user.health}`);
+console.log("Test passed: useItem correctly healed the character.");

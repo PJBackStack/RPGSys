@@ -31,6 +31,8 @@ function getNamesAtPaths(base, paths = []) {
     return results;
 }
 
+
+
 //endregion
 
 //region Text Parsing
@@ -70,8 +72,15 @@ class Character {
         this.statusEffects = []; // array of status objects like stun, burn, etc.
         this.equipment =
             {
-                head: {slot: {name: 'head', equipmentName: 'empty'}},
-
+                head: {name: 'empty'},
+                chest: {name: 'empty'},
+                hands: {name: 'empty'},
+                weapon: {name: 'empty'},
+                offhand: {name: 'empty'},
+                legs: {name: 'empty'},
+                accessoryL: {name: 'empty'},
+                accessoryR: {name: 'empty'},
+                boots: {name: 'empty'},
             };
         this.modifiers =
             {
@@ -123,10 +132,23 @@ class Character {
 
     }
 
-    // Handles all end of turn logic, and possibly calls for damage calculations to be made
+    resolveAction(action = 'invalid', targets = ['allEnemies']) {
+        if (!this.hasStatusEffect('stun')) {
+            // Call for actions to be made, then handle the turn
+            this.handleTurn()
+        }
+        else {
+            // Log stun message to output, run end of turn resolution
+            this.handleTurn()
+        }
+    }
+
+    // Handles all end of turn logic
     handleTurn() {
         this.handleModifierTicks()
+        this.handleStatusTicks()
     }
+
 
     handleModifierTicks() {
         // List of paths to all nested categories within temporary modifiers
@@ -156,6 +178,17 @@ class Character {
         }
     }
 
+    handleStatusTicks()
+    {
+        for (let i = this.statusEffects.length - 1; i >= 0; i--) {
+            const effect = this.statusEffects[i];
+            effect.handler();
+            if (effect.duration <= 0) {
+                this.statusEffects.splice(i, 1); // remove expired effect
+            }
+        }
+    }
+
     adjustHealth(amount = 0) {
         this.health += amount;
         if (this.health > this.maxHealth) {
@@ -178,6 +211,10 @@ class Character {
         return this.health > 0;
     }
 
+    hasStatusEffect(name) {
+        return this.statusEffects.some(effect => effect.name === name);
+    }
+
     resetStatusEffects() {
         this.statusEffects = [];
     }
@@ -191,10 +228,10 @@ class Character {
             this.inventory[key] = {
                 quantity,
                 ...(itemData.isUseable && {
-                    use: () => useItem(key)
+                    use: () => useItem(key, this)
                 }),
                 ...(itemData.isEquippable && {
-                    equip: () => equipItem(key)
+                    equip: () => equipItem(key, this)
                 })
             }
         } else {
@@ -290,7 +327,7 @@ const itemList = {
         },
         iron_ring: {
             name: "Iron Ring",
-            type: "accessoire",
+            type: "accessory",
             description: "A simple ring made of iron. Increases resistance.",
             effects: { resistanceBonus: 5 },
             equipable: true,
@@ -301,9 +338,22 @@ const itemList = {
 };
 // effectChanceDefault: item.effectChance ?? 1.0; USE THIS IN LOGIC
 
-function useItem(key)
-{
+function useItem(key, user, targets = [user]) {
+    const item = itemList.consumables[key];
+    if (!item || !item.usable) return;
 
+    for (const target of targets) {
+        const effects = item.effects;
+
+        for (const [effectType, value] of Object.entries(effects)) {
+            const effectHandler = effectList[effectType];
+            if (typeof effectHandler === 'function') {
+                effectHandler(target, value);
+            } else {
+                console.warn(`No handler defined for effect type: ${effectType}`);
+            }
+        }
+    }
 }
 
 //endregion
@@ -361,7 +411,46 @@ const skillList = {
 
 //endregion
 
+//region Effect Logic
 
+const effectList = {
+    heal: (target, value) => {
+        target.adjustHealth(value);
+    },
+    resourceHeal: (target, value) => {
+        target.adjustResource(value);
+    },
+    // Add more effects as needed
+    bleed: (target, value, damage) => {
+        // Bleed will be stackable, but will take the highest duration and add the damage together. Implement in the future.
+        target.statusEffects.push({ name: 'bleed', duration: value, damage: damage, handler: function () { statusList[this.name](target, this.damage); } });
+    },
+    burn: (target, value) => {
+        // Burn is not stackable, check if burn is already present.
+        if (!target.hasStatusEffect('burn')) {
+            target.statusEffects.push({ name: 'burn', duration: value, handler: function () { statusList[this.name](target) } });
+        }
+    },
+    stun: (target, value) => {
+        // Check if target is stunned/stun immune, only apply if they are neither.
+        if (!target.hasStatusEffect('stunImmunity' && !target.hasStatusEffect('stun'))) {
+            target.statusEffects.push({ name: 'stun', handler: function () { statusList[this.name](target); } });
+        }
+    }
+    // etc.
+};
+
+const statusList = {
+    bleed: (target, value = 0) => { target.adjustHealth(-value) },
+    burn: (target) => { target.adjustHealth(Math.ceil(target.maxHealth / 10)) },
+    stun: (target) =>
+        {
+            target.statusEffects = target.statusEffects.filter(effect => effect.name !== 'stun');
+            target.statusEffects.push({ name: 'stunImmunity', duration: 1 });
+        },
+}
+
+//endregion
 
 
 /*
